@@ -1,4 +1,4 @@
-import { CircleDollarSign, Edit3, Globe2, KeyRound, Plus, Target, UserRound } from 'lucide-react'
+import { CalendarDays, CircleDollarSign, Edit3, Globe2, KeyRound, Plus, Target, UserRound } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { AccountProgress } from '../components/AccountProgress'
 import { PageIntro } from '../components/PageIntro'
@@ -21,6 +21,13 @@ const splitPlatform = (platform: string | undefined): { choice: string; other: s
 // Resolve the select choice + free text back into the single platform value we persist.
 const resolvePlatform = (choice: string, other: string) => (choice === 'Other' ? other.trim() : choice)
 
+// Today's local date as YYYY-MM-DD for the <input type="date"> default on new accounts.
+const todayDate = () => {
+  const d = new Date()
+  const offset = d.getTimezoneOffset()
+  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10)
+}
+
 const emptyCreateForm = {
   name: '',
   handle: '',
@@ -35,6 +42,8 @@ const emptyCreateForm = {
   platformChoice: 'TikTok',
   platformOther: '',
   twoFactorCode: '',
+  // Blank at module load; openCreate() fills today's date so it reflects the day the form opens.
+  accountCreationDate: '',
 }
 
 export function AccountsPage() {
@@ -50,6 +59,7 @@ export function AccountsPage() {
   const [editPlatformChoice, setEditPlatformChoice] = useState('')
   const [editPlatformOther, setEditPlatformOther] = useState('')
   const [editTwoFactor, setEditTwoFactor] = useState('')
+  const [editCreationDate, setEditCreationDate] = useState('')
   const [editError, setEditError] = useState('')
 
   // Create modal state
@@ -70,6 +80,7 @@ export function AccountsPage() {
     setEditPlatformChoice(platform.choice)
     setEditPlatformOther(platform.other)
     setEditTwoFactor(account.twoFactorCode ?? '')
+    setEditCreationDate(account.accountCreationDate ?? '')
     setEditError('')
   }
 
@@ -89,6 +100,8 @@ export function AccountsPage() {
       dailyUploadTarget: Number(dailyTarget) || 1,
       platform,
       twoFactorCode: editTwoFactor.trim(),
+      // Persist the trimmed date ('' clears it, never undefined for Firestore).
+      accountCreationDate: editCreationDate.trim(),
     })
     setEditingId(null)
   }
@@ -96,7 +109,8 @@ export function AccountsPage() {
   const updateCreate = (patch: Partial<typeof emptyCreateForm>) => setCreateForm((form) => ({ ...form, ...patch }))
 
   const openCreate = () => {
-    setCreateForm(emptyCreateForm)
+    // Default the creation date to today whenever the form opens.
+    setCreateForm({ ...emptyCreateForm, accountCreationDate: todayDate() })
     setCreateError('')
     setCreating(true)
   }
@@ -126,6 +140,8 @@ export function AccountsPage() {
       dailyUploadTarget: Number(createForm.dailyTarget) || 1,
       platform,
       active: true,
+      // Auto-set to today by openCreate; fall back to today if the field was cleared.
+      accountCreationDate: createForm.accountCreationDate || todayDate(),
       // Only attach 2FA when provided so Firestore never receives an undefined field.
       ...(code ? { twoFactorCode: code } : {}),
     }
@@ -150,7 +166,7 @@ export function AccountsPage() {
         <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>Account</th><th>Platform</th><th>Country</th><th>Owner</th><th>Assigned</th><th>Followers</th><th>Goal</th><th>Last views</th><th>Monetization</th><th /></tr>
+              <tr><th>Account</th><th>Platform</th><th>Country</th><th>Owner</th><th>Assigned</th><th>Followers</th><th>Goal</th><th>Last views</th><th>Monetization</th><th>Created</th><th /></tr>
             </thead>
             <tbody>
               {summaries.map((account) => (
@@ -164,6 +180,7 @@ export function AccountsPage() {
                   <td><span className="icon-text"><Target size={15} />{formatFullNumber(account.followerGoal)}</span></td>
                   <td>{formatNumber(account.lastVideoViews)}</td>
                   <td><span className={`plain-pill ${account.monetizationStatus === 'Monetized' ? 'success' : ''}`}><CircleDollarSign size={14} />{account.monetizationStatus}</span></td>
+                  <td>{account.accountCreationDate || '—'}</td>
                   <td><button className="icon-button" onClick={() => beginEdit(account)} aria-label={`Edit ${account.name}`}><Edit3 size={16} /></button></td>
                 </tr>
               ))}
@@ -193,6 +210,7 @@ export function AccountsPage() {
               <label><span>Monetization status</span><select value={monetizationStatus} onChange={(event) => setMonetizationStatus(event.target.value as MonetizationStatus)}>{monetizationOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
               <label><span>Daily upload target</span><input type="number" min="1" value={dailyTarget} onChange={(event) => setDailyTarget(event.target.value)} /></label>
               <label><span>2FA code <em>(optional)</em></span><input value={editTwoFactor} onChange={(event) => setEditTwoFactor(event.target.value)} placeholder="Leave blank if none" autoComplete="off" /></label>
+              <label><span className="icon-text"><CalendarDays size={14} />Account creation date</span><input type="date" value={editCreationDate} onChange={(event) => setEditCreationDate(event.target.value)} /></label>
             </div>
             {editError && <p className="form-error">{editError}</p>}
             <div className="modal-actions"><button className="button secondary" onClick={() => setEditingId(null)}>Cancel</button><button className="button primary" onClick={save}>Save account</button></div>
@@ -227,6 +245,7 @@ export function AccountsPage() {
                 <label><span>Monetization status</span><select value={createForm.monetizationStatus} onChange={(event) => updateCreate({ monetizationStatus: event.target.value as MonetizationStatus })}>{monetizationOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
                 <label><span>Daily upload target</span><input type="number" min="1" value={createForm.dailyTarget} onChange={(event) => updateCreate({ dailyTarget: event.target.value })} /></label>
                 <label><span className="icon-text"><KeyRound size={14} />2FA code <em>(optional)</em></span><input value={createForm.twoFactorCode} onChange={(event) => updateCreate({ twoFactorCode: event.target.value })} placeholder="Leave blank if none" autoComplete="off" /></label>
+                <label><span className="icon-text"><CalendarDays size={14} />Account creation date</span><input type="date" value={createForm.accountCreationDate} onChange={(event) => updateCreate({ accountCreationDate: event.target.value })} /></label>
               </div>
               {createError && <p className="form-error">{createError}</p>}
               <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setCreating(false)}>Cancel</button><button type="submit" className="button primary"><Plus size={16} />Create account</button></div>

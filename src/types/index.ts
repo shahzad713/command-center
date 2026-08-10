@@ -25,6 +25,10 @@ export interface TikTokAccount {
   dailyUploadTarget: number
   platform: string
   twoFactorCode?: string
+  // User-facing account creation date (YYYY-MM-DD). Distinct from the system `createdAt`
+  // timestamp: this one defaults to today on new accounts but is editable. Optional so
+  // existing documents that predate the field keep working untouched.
+  accountCreationDate?: string
   active: boolean
   createdAt: string
   updatedAt: string
