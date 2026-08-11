@@ -13,6 +13,9 @@ export const PLATFORM_PRESETS = ['Facebook', 'TikTok', 'Instagram', 'X', 'Other'
 
 export interface TikTokAccount {
   id: string
+  // Owning tenant. Always equals the Firebase Auth uid of the account's creator.
+  // Every read query filters on this and every write injects it (see DataContext).
+  tenantId: string
   name: string
   handle: string
   // Email address tied to this social account. Optional so existing documents that
@@ -39,6 +42,8 @@ export interface TikTokAccount {
 
 export interface VideoRecord {
   id: string
+  // Owning tenant (Firebase Auth uid of creator). See TikTokAccount.tenantId.
+  tenantId: string
   accountId: string
   title: string
   status: VideoStatus
@@ -58,6 +63,8 @@ export interface VideoRecord {
 
 export interface DailyFollowerSnapshot {
   id: string
+  // Owning tenant (Firebase Auth uid of creator). See TikTokAccount.tenantId.
+  tenantId: string
   accountId: string
   date: string
   followers: number
@@ -71,6 +78,20 @@ export interface TeamMember {
   role: string
 }
 
+// One document per registered platform user, keyed by Firebase Auth uid.
+// Provisioned/updated on every login (see AuthContext). Powers the Super Admin
+// tenant directory. For a normal user, `tenantId === id === their own uid`.
+export interface UserRecord {
+  id: string
+  tenantId: string
+  email: string
+  displayName?: string
+  // When true, Firestore rules + the app lock this tenant out of all data.
+  disabled?: boolean
+  createdAt: string
+  lastLoginAt: string
+}
+
 export interface DashboardStats {
   activeAccounts: number
   uploadedToday: number
@@ -82,6 +103,8 @@ export interface DashboardStats {
   monetizedAccounts: number
 }
 
-export type EditableAccount = Omit<TikTokAccount, 'id' | 'createdAt' | 'updatedAt'>
-export type EditableVideo = Omit<VideoRecord, 'id' | 'createdAt' | 'updatedAt'>
-export type EditableSnapshot = Omit<DailyFollowerSnapshot, 'id' | 'createdAt'>
+// `tenantId` is injected server-side-style by DataContext on write, so forms never
+// supply it (nor id/createdAt/updatedAt).
+export type EditableAccount = Omit<TikTokAccount, 'id' | 'tenantId' | 'createdAt' | 'updatedAt'>
+export type EditableVideo = Omit<VideoRecord, 'id' | 'tenantId' | 'createdAt' | 'updatedAt'>
+export type EditableSnapshot = Omit<DailyFollowerSnapshot, 'id' | 'tenantId' | 'createdAt'>

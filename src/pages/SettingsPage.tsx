@@ -1,23 +1,21 @@
-import { CheckCircle2, Cloud, Code2, Database, RotateCcw, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, Code2, Database, ShieldCheck } from 'lucide-react'
 import { PageIntro } from '../components/PageIntro'
 import { useData } from '../context/DataContext'
 import { firebaseEnabled } from '../services/firebase'
 
 export function SettingsPage() {
-  const { storageMode, seedDemoData, resetDemoData } = useData()
+  const { storageMode } = useData()
 
   return (
     <div className="page-stack">
-      <PageIntro title="Setup and deployment" description="The application works immediately in browser-demo mode and switches automatically to Firebase when environment variables are added." />
+      <PageIntro title="Setup and deployment" description="The application works immediately in browser storage mode and switches automatically to Firebase when environment variables are added." />
 
       <section className="dashboard-grid equal">
         <article className="panel setup-card">
           <div className="setup-icon cyan"><Database size={22} /></div>
           <span className="panel-kicker">CURRENT DATA MODE</span>
           <h3>{storageMode}</h3>
-          <p>{firebaseEnabled ? 'Realtime Firestore synchronization is active.' : 'Data is saved in this browser using localStorage. Perfect for testing before Firebase setup.'}</p>
-          {!firebaseEnabled && <button className="button secondary" onClick={resetDemoData}><RotateCcw size={16} />Reset demo data</button>}
-          {firebaseEnabled && <button className="button secondary" onClick={seedDemoData}><Cloud size={16} />Load starter data into Firebase</button>}
+          <p>{firebaseEnabled ? 'Realtime Firestore synchronization is active. Each tenant sees only their own data.' : 'Data is saved in this browser using localStorage. It starts empty — add your own accounts and updates.'}</p>
         </article>
 
         <article className="panel setup-card">

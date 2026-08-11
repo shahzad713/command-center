@@ -3,14 +3,12 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   setDoc,
   updateDoc,
-  writeBatch,
+  where,
 } from 'firebase/firestore'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { seedAccounts, seedSnapshots, seedVideos } from '../data/seed'
 import { db, firebaseEnabled } from '../services/firebase'
 import { useAuth } from './AuthContext'
 import type {
@@ -27,14 +25,21 @@ interface DataContextValue {
   videos: VideoRecord[]
   snapshots: DailyFollowerSnapshot[]
   loading: boolean
-  storageMode: 'Firebase' | 'Demo browser storage'
+  storageMode: 'Firebase' | 'Browser storage'
+  // Tenant whose data is currently loaded. Normal users: their own uid.
+  // Super Admin: their uid, or an impersonated tenant id.
+  activeTenantId: string | null
+  // True when a Super Admin is viewing someone else's data.
+  isImpersonating: boolean
+  // Super-Admin-only: switch the loaded tenant. No-op for normal users.
+  setActiveTenant: (tenantId: string) => void
+  // Return to viewing your own tenant.
+  resetTenant: () => void
   addAccount: (account: EditableAccount) => Promise<void>
   updateAccount: (id: string, patch: Partial<TikTokAccount>) => Promise<void>
   addVideo: (video: EditableVideo) => Promise<void>
   updateVideo: (id: string, patch: Partial<VideoRecord>) => Promise<void>
   addSnapshot: (snapshot: EditableSnapshot) => Promise<void>
-  seedDemoData: () => Promise<void>
-  resetDemoData: () => void
 }
 
 const DataContext = createContext<DataContextValue | null>(null)
@@ -44,6 +49,10 @@ const STORAGE_KEYS = {
   videos: 'tcc_videos_v1',
   snapshots: 'tcc_snapshots_v1',
 }
+
+// Tenant id used only in offline mode (no Firebase configured). Real tenants use
+// their Firebase Auth uid. No demo data is ever preloaded under this id.
+const LOCAL_TENANT_ID = 'local'
 
 const loadLocal = <T,>(key: string, fallback: T): T => {
   try {
@@ -60,31 +69,50 @@ const saveLocal = (key: string, value: unknown) => {
 
 const createId = () => crypto.randomUUID()
 
+const byScheduledDateDesc = (a: VideoRecord, b: VideoRecord) => b.scheduledDate.localeCompare(a.scheduledDate)
+const byDateAsc = (a: DailyFollowerSnapshot, b: DailyFollowerSnapshot) => a.date.localeCompare(b.date)
+
 export function DataProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, loading: authLoading } = useAuth()
+  const { uid, isSuperAdmin, isDemoMode, loading: authLoading } = useAuth()
   const [accounts, setAccounts] = useState<TikTokAccount[]>([])
   const [videos, setVideos] = useState<VideoRecord[]>([])
   const [snapshots, setSnapshots] = useState<DailyFollowerSnapshot[]>([])
   const [loading, setLoading] = useState(true)
+  const [tenantOverride, setTenantOverride] = useState<string | null>(null)
+
+  // The tenant this user genuinely owns. Offline mode has no auth, so it uses a fixed id.
+  const ownTenantId = isDemoMode ? LOCAL_TENANT_ID : uid
+
+  // Impersonation is a Super-Admin-only privilege. A normal user's override is ignored.
+  const activeTenantId = isSuperAdmin && tenantOverride ? tenantOverride : ownTenantId
+  const isImpersonating = isSuperAdmin && tenantOverride != null && tenantOverride !== uid
+
+  // Drop any impersonation when the signed-in identity changes (e.g. logout).
+  useEffect(() => {
+    setTenantOverride(null)
+  }, [uid])
+
+  const setActiveTenant = useCallback((tenantId: string) => {
+    if (!isSuperAdmin) return
+    setTenantOverride(tenantId)
+  }, [isSuperAdmin])
+
+  const resetTenant = useCallback(() => setTenantOverride(null), [])
 
   useEffect(() => {
     if (authLoading) return
 
+    // ---- Offline mode: browser storage only. Starts empty — no demo/seed data. ----
     if (!firebaseEnabled || !db) {
-      const localAccounts = loadLocal(STORAGE_KEYS.accounts, seedAccounts)
-      const localVideos = loadLocal(STORAGE_KEYS.videos, seedVideos)
-      const localSnapshots = loadLocal(STORAGE_KEYS.snapshots, seedSnapshots)
-      setAccounts(localAccounts)
-      setVideos(localVideos)
-      setSnapshots(localSnapshots)
-      saveLocal(STORAGE_KEYS.accounts, localAccounts)
-      saveLocal(STORAGE_KEYS.videos, localVideos)
-      saveLocal(STORAGE_KEYS.snapshots, localSnapshots)
+      setAccounts(loadLocal<TikTokAccount[]>(STORAGE_KEYS.accounts, []))
+      setVideos(loadLocal<VideoRecord[]>(STORAGE_KEYS.videos, []))
+      setSnapshots(loadLocal<DailyFollowerSnapshot[]>(STORAGE_KEYS.snapshots, []))
       setLoading(false)
       return
     }
 
-    if (!isAuthenticated) {
+    // ---- Firebase mode: nothing loads until we know which tenant to scope to. ----
+    if (!activeTenantId) {
       setAccounts([])
       setVideos([])
       setSnapshots([])
@@ -93,15 +121,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     setLoading(true)
-    const unsubAccounts = onSnapshot(collection(db, 'accounts'), (snapshot) => {
+    // Every query is hard-scoped to the active tenant. Sorting is done client-side
+    // so we avoid requiring a composite index for (tenantId + orderBy).
+    const accountsQuery = query(collection(db, 'accounts'), where('tenantId', '==', activeTenantId))
+    const videosQuery = query(collection(db, 'videos'), where('tenantId', '==', activeTenantId))
+    const snapshotsQuery = query(collection(db, 'snapshots'), where('tenantId', '==', activeTenantId))
+
+    const unsubAccounts = onSnapshot(accountsQuery, (snapshot) => {
       setAccounts(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as TikTokAccount))
       setLoading(false)
     })
-    const unsubVideos = onSnapshot(query(collection(db, 'videos'), orderBy('scheduledDate', 'desc')), (snapshot) => {
-      setVideos(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as VideoRecord))
+    const unsubVideos = onSnapshot(videosQuery, (snapshot) => {
+      setVideos(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as VideoRecord).sort(byScheduledDateDesc))
     })
-    const unsubSnapshots = onSnapshot(query(collection(db, 'snapshots'), orderBy('date', 'asc')), (snapshot) => {
-      setSnapshots(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DailyFollowerSnapshot))
+    const unsubSnapshots = onSnapshot(snapshotsQuery, (snapshot) => {
+      setSnapshots(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DailyFollowerSnapshot).sort(byDateAsc))
     })
 
     return () => {
@@ -109,7 +143,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       unsubVideos()
       unsubSnapshots()
     }
-  }, [authLoading, isAuthenticated])
+  }, [authLoading, activeTenantId])
 
   const syncAccountFollower = useCallback(async (accountId: string, followers: number, source: DailyFollowerSnapshot['source']) => {
     const account = accounts.find((item) => item.id === accountId)
@@ -117,10 +151,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     const now = new Date().toISOString()
     const date = now.slice(0, 10)
+    const tenantId = activeTenantId ?? account.tenantId
 
     if (firebaseEnabled && db) {
       await updateDoc(doc(db, 'accounts', accountId), { currentFollowers: followers, updatedAt: now })
-      await addDoc(collection(db, 'snapshots'), { accountId, date, followers, source, createdAt: now })
+      await addDoc(collection(db, 'snapshots'), { tenantId, accountId, date, followers, source, createdAt: now })
       return
     }
 
@@ -129,6 +164,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     )
     const newSnapshot: DailyFollowerSnapshot = {
       id: createId(),
+      tenantId,
       accountId,
       date,
       followers,
@@ -140,12 +176,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setSnapshots(updatedSnapshots)
     saveLocal(STORAGE_KEYS.accounts, updatedAccounts)
     saveLocal(STORAGE_KEYS.snapshots, updatedSnapshots)
-  }, [accounts, snapshots])
+  }, [accounts, snapshots, activeTenantId])
 
   const addAccount = useCallback(async (input: EditableAccount) => {
+    if (!activeTenantId) throw new Error('No active tenant — cannot create account.')
     const now = new Date().toISOString()
     const id = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || createId()
-    const account: TikTokAccount = { ...input, id, createdAt: now, updatedAt: now }
+    const account: TikTokAccount = { ...input, id, tenantId: activeTenantId, createdAt: now, updatedAt: now }
 
     if (firebaseEnabled && db) {
       await setDoc(doc(db, 'accounts', id), account)
@@ -154,10 +191,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const next = [...accounts, account]
     setAccounts(next)
     saveLocal(STORAGE_KEYS.accounts, next)
-  }, [accounts])
+  }, [accounts, activeTenantId])
 
   const updateAccount = useCallback(async (id: string, patch: Partial<TikTokAccount>) => {
     const updatedAt = new Date().toISOString()
+    // tenantId is deliberately never part of an update — ownership is immutable here.
     if (firebaseEnabled && db) {
       await updateDoc(doc(db, 'accounts', id), { ...patch, updatedAt })
       return
@@ -168,9 +206,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [accounts])
 
   const addVideo = useCallback(async (input: EditableVideo) => {
+    if (!activeTenantId) throw new Error('No active tenant — cannot create video.')
     const now = new Date().toISOString()
     const id = createId()
-    const video: VideoRecord = { ...input, id, createdAt: now, updatedAt: now }
+    const video: VideoRecord = { ...input, id, tenantId: activeTenantId, createdAt: now, updatedAt: now }
 
     if (firebaseEnabled && db) {
       await setDoc(doc(db, 'videos', id), video)
@@ -183,7 +222,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (video.status === 'Uploaded') {
       await syncAccountFollower(video.accountId, video.followersAfter, 'Video upload')
     }
-  }, [syncAccountFollower, videos])
+  }, [syncAccountFollower, videos, activeTenantId])
 
   const updateVideo = useCallback(async (id: string, patch: Partial<VideoRecord>) => {
     const current = videos.find((item) => item.id === id)
@@ -205,9 +244,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [syncAccountFollower, videos])
 
   const addSnapshot = useCallback(async (input: EditableSnapshot) => {
-    const snapshot: DailyFollowerSnapshot = { ...input, id: createId(), createdAt: new Date().toISOString() }
+    if (!activeTenantId) throw new Error('No active tenant — cannot create snapshot.')
+    const snapshot: DailyFollowerSnapshot = { ...input, id: createId(), tenantId: activeTenantId, createdAt: new Date().toISOString() }
     if (firebaseEnabled && db) {
-      await addDoc(collection(db, 'snapshots'), snapshot)
+      await addDoc(collection(db, 'snapshots'), { ...input, tenantId: activeTenantId, createdAt: snapshot.createdAt })
       await updateDoc(doc(db, 'accounts', input.accountId), {
         currentFollowers: input.followers,
         updatedAt: new Date().toISOString(),
@@ -224,41 +264,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setAccounts(nextAccounts)
     saveLocal(STORAGE_KEYS.snapshots, nextSnapshots)
     saveLocal(STORAGE_KEYS.accounts, nextAccounts)
-  }, [accounts, snapshots])
-
-  const seedDemoData = useCallback(async () => {
-    if (!firebaseEnabled || !db) return
-    const batch = writeBatch(db)
-    seedAccounts.forEach((item) => batch.set(doc(db!, 'accounts', item.id), item))
-    seedVideos.forEach((item) => batch.set(doc(db!, 'videos', item.id), item))
-    seedSnapshots.forEach((item) => batch.set(doc(db!, 'snapshots', item.id), item))
-    await batch.commit()
-  }, [])
-
-  const resetDemoData = useCallback(() => {
-    if (firebaseEnabled) return
-    setAccounts(seedAccounts)
-    setVideos(seedVideos)
-    setSnapshots(seedSnapshots)
-    saveLocal(STORAGE_KEYS.accounts, seedAccounts)
-    saveLocal(STORAGE_KEYS.videos, seedVideos)
-    saveLocal(STORAGE_KEYS.snapshots, seedSnapshots)
-  }, [])
+  }, [accounts, snapshots, activeTenantId])
 
   const value = useMemo<DataContextValue>(() => ({
     accounts,
     videos,
     snapshots,
     loading,
-    storageMode: firebaseEnabled ? 'Firebase' : 'Demo browser storage',
+    storageMode: firebaseEnabled ? 'Firebase' : 'Browser storage',
+    activeTenantId,
+    isImpersonating,
+    setActiveTenant,
+    resetTenant,
     addAccount,
     updateAccount,
     addVideo,
     updateVideo,
     addSnapshot,
-    seedDemoData,
-    resetDemoData,
-  }), [accounts, videos, snapshots, loading, addAccount, updateAccount, addVideo, updateVideo, addSnapshot, seedDemoData, resetDemoData])
+  }), [accounts, videos, snapshots, loading, activeTenantId, isImpersonating, setActiveTenant, resetTenant, addAccount, updateAccount, addVideo, updateVideo, addSnapshot])
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>
 }

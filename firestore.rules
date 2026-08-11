@@ -1,46 +1,21 @@
 rules_version = '2';
-
-// SECURITY MODEL
-// This app is a single-team, shared dashboard: every authenticated team member is
-// trusted and needs to read/write all accounts, videos and snapshots. There is no
-// per-user data ownership in the schema (the `owner` field is a team-member display
-// name, not a Firebase Auth UID), so "each user sees only their own row" is NOT
-// enforceable here without adding an `ownerUid` field to every document and changing
-// the app to load only the current user's data.
-//
-// 2FA CAVEAT: `accounts.twoFactorCode` is readable by ANY signed-in user and is shipped
-// to the browser like the rest of the account. Firestore rules cannot hide a single
-// field from a client that is allowed to read the document. Do NOT store high-value
-// secrets here. To protect it per-owner, move it to a `secrets/{uid}` subcollection
-// guarded by `request.auth.uid == uid` and add ownerUid to accounts (see commented
-// template at the bottom).
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    function isSuperAdmin() { return request.auth.token.email == 'munirshahzad044@gmail.com'; }
+    function isDataOwner() { return request.auth != null && resource.data.tenantId == request.auth.uid; }
 
-    match /accounts/{accountId} {
-      allow read, create, update: if isSignedIn();
-      allow delete: if false;
+    match /users/{userId} {
+      allow read, write: if isSuperAdmin();
+      allow read: if request.auth.uid == userId;
+      // A user may create/refresh only their OWN record, and only with tenantId == their uid.
+      allow create, update: if request.auth != null
+                            && request.auth.uid == userId
+                            && request.resource.data.tenantId == request.auth.uid;
     }
-
-    match /videos/{videoId} {
-      allow read, create, update: if isSignedIn();
-      allow delete: if false;
+    match /{collection}/{docId} {
+      allow read, write: if isSuperAdmin();
+      allow read, update, delete: if isDataOwner();
+      allow create: if request.auth != null && request.resource.data.tenantId == request.auth.uid;
     }
-
-    match /snapshots/{snapshotId} {
-      allow read, create, update: if isSignedIn();
-      allow delete: if false;
-    }
-
-    // Optional per-owner secret store. Adopt this only if you add ownerUid to accounts
-    // and write 2FA codes here instead of on the account document:
-    //
-    // match /secrets/{uid} {
-    //   allow read, write: if isSignedIn() && request.auth.uid == uid;
-    // }
   }
 }

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { PageIntro } from '../components/PageIntro'
 import { StatusBadge } from '../components/StatusBadge'
 import { useData } from '../context/DataContext'
-import { teamMembers } from '../data/seed'
+import { teamMembers } from '../data/team'
 import type { EditableVideo, VideoStatus } from '../types'
 
 const statuses: VideoStatus[] = ['Idea', 'Script Pending', 'Editing', 'Ready to Upload', 'Scheduled', 'Uploaded', 'Delayed']
