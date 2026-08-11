@@ -181,7 +181,9 @@ export function AccountsPage() {
               <tr><th>Account</th><th>Email</th><th>Niche</th><th>Country</th><th>Owner</th><th>Assigned</th><th>Followers</th><th>Goal</th><th>Status</th><th>Created</th><th /></tr>
             </thead>
             <tbody>
-              {summaries.map((account) => (
+              {summaries.length === 0 ? (
+                <tr><td colSpan={11}><p className="empty-copy">No accounts found. Click “Add account” to create your first one.</p></td></tr>
+              ) : summaries.map((account) => (
                 <tr key={account.id}>
                   <td><div className="account-cell"><strong>{account.name}</strong><span>{account.handle || '—'}</span></div></td>
                   <td><span className="icon-text"><Mail size={14} />{account.email || '—'}</span></td>

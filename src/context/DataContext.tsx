@@ -2,15 +2,13 @@ import {
   addDoc,
   collection,
   doc,
-  getDocs,
   onSnapshot,
   query,
   setDoc,
   updateDoc,
   where,
-  writeBatch,
 } from 'firebase/firestore'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { db, firebaseEnabled } from '../services/firebase'
 import { useAuth } from './AuthContext'
 import type {
@@ -56,32 +54,6 @@ const STORAGE_KEYS = {
 // their Firebase Auth uid. No demo data is ever preloaded under this id.
 const LOCAL_TENANT_ID = 'local'
 
-// Per-tenant collections, all scoped by a `tenantId` field.
-const TENANT_COLLECTIONS = ['accounts', 'videos', 'snapshots'] as const
-
-/**
- * One-time legacy migration. Documents created before multi-tenancy have no
- * `tenantId`, so the tenant-scoped queries filter them out. Firestore cannot query
- * for a missing field, so we read each collection in full (allowed for the Super
- * Admin by firestore.rules) and stamp any doc lacking a tenantId with the Super
- * Admin's uid. Runs only for the Super Admin, once per session.
- */
-async function migrateLegacyDocs(ownerUid: string): Promise<void> {
-  if (!firebaseEnabled || !db) return
-  for (const collectionName of TENANT_COLLECTIONS) {
-    const snap = await getDocs(collection(db, collectionName))
-    const legacy = snap.docs.filter((docSnap) => {
-      const tenantId = (docSnap.data() as { tenantId?: unknown }).tenantId
-      return tenantId == null || tenantId === ''
-    })
-    for (let i = 0; i < legacy.length; i += 400) {
-      const batch = writeBatch(db)
-      legacy.slice(i, i + 400).forEach((docSnap) => batch.update(docSnap.ref, { tenantId: ownerUid }))
-      await batch.commit()
-    }
-  }
-}
-
 const loadLocal = <T,>(key: string, fallback: T): T => {
   try {
     const value = localStorage.getItem(key)
@@ -126,18 +98,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [isSuperAdmin])
 
   const resetTenant = useCallback(() => setTenantOverride(null), [])
-
-  // Auto-migrate legacy (pre-multi-tenant) documents to the Super Admin, once per session.
-  const migratedRef = useRef(false)
-  useEffect(() => {
-    if (!firebaseEnabled || !db || !isSuperAdmin || !uid || migratedRef.current) return
-    migratedRef.current = true
-    migrateLegacyDocs(uid).catch((error) => {
-      // Non-fatal: surfacing failures here would only confuse; the tenant filter still works.
-      migratedRef.current = false
-      console.warn('Legacy tenant migration failed', error)
-    })
-  }, [isSuperAdmin, uid])
 
   useEffect(() => {
     if (authLoading) return

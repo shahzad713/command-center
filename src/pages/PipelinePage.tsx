@@ -35,7 +35,9 @@ export function PipelinePage() {
           <table className="pipeline-table">
             <thead><tr><th>Video</th><th>Status</th><th>Editor</th><th>Uploader</th><th>Schedule</th><th>Upload slot</th><th>Views</th><th>Follower gain</th></tr></thead>
             <tbody>
-              {filtered.map((video) => {
+              {filtered.length === 0 ? (
+                <tr><td colSpan={8}><p className="empty-copy">{videos.length === 0 ? 'No videos yet. Add accounts and schedule uploads to populate the pipeline.' : 'No videos match the current filters.'}</p></td></tr>
+              ) : filtered.map((video) => {
                 const account = accounts.find((item) => item.id === video.accountId)
                 return (
                   <tr key={video.id}>

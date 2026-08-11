@@ -43,6 +43,12 @@ export function AnalyticsPage() {
     <div className="page-stack">
       <PageIntro title="Performance analytics" description="Follower-first reporting: identify which account, uploader and upload time creates the strongest growth." />
 
+      {videos.length === 0 ? (
+        <section className="panel empty-panel">
+          <p className="empty-copy">No analytics yet. Add accounts and log uploaded videos to see performance reporting here.</p>
+        </section>
+      ) : (
+        <>
       <section className="stats-grid four">
         <StatCard label="Tracked views" value={formatNumber(totalViews)} helper="Uploaded videos only" icon={BarChart3} tone="cyan" />
         <StatCard label="Follower gain" value={`+${formatFullNumber(totalGain)}`} helper="From tracked uploads" icon={Users} tone="green" />
@@ -107,6 +113,8 @@ export function AnalyticsPage() {
           </div>
         </article>
       </section>
+        </>
+      )}
     </div>
   )
 }

@@ -153,6 +153,7 @@ h1, h2, h3, strong, b { font-family: 'Space Grotesk', sans-serif; }
 .signal span { display: block; margin-top: 3px; color: #6e7f96; font-size: 8px; line-height: 1.45; }
 .signal.critical svg { color: var(--pink); }.signal.positive svg { color: var(--cyan); }.signal.neutral svg { color: var(--amber); }
 .empty-copy { color: #6f8198; font-size: 11px; }
+.empty-panel { display: flex; align-items: center; justify-content: center; padding: 40px 20px; text-align: center; }
 
 .table-panel { padding-bottom: 12px; }
 .table-scroll { overflow-x: auto; margin: 0 -4px; }
