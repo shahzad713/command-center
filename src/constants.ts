@@ -18,3 +18,18 @@ export const SUPER_ADMIN_EMAIL =
 
 export const isSuperAdminEmail = (email: string | null | undefined): boolean =>
   Boolean(email) && email!.trim().toLowerCase() === SUPER_ADMIN_EMAIL
+
+// Platform roles. `super_admin` can administer every tenant and other admins;
+// `user` is a normal single-tenant account. The root SUPER_ADMIN_EMAIL is always
+// treated as super_admin regardless of the stored role and can never be demoted.
+export type UserRole = 'super_admin' | 'user'
+
+export const DEFAULT_ROLE: UserRole = 'user'
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  super_admin: 'Super Admin',
+  user: 'User',
+}
+
+// The root admin is the one permanent super admin — protected from role change and deletion.
+export const isRootAdminEmail = isSuperAdminEmail

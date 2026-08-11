@@ -1,11 +1,14 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, query, where, writeBatch, type Timestamp } from 'firebase/firestore'
-import { isSuperAdminEmail } from '../constants'
-import { db, firebaseEnabled } from './firebase'
+import { deleteApp, initializeApp } from 'firebase/app'
+import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth'
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Timestamp } from 'firebase/firestore'
+import { DEFAULT_ROLE, isSuperAdminEmail, type UserRole } from '../constants'
+import { db, firebaseConfig, firebaseEnabled } from './firebase'
 
 export interface TenantRow {
   uid: string
   email: string
   displayName?: string
+  role: UserRole
   disabled?: boolean
   createdAt: string
   lastLoginAt: string
@@ -31,6 +34,7 @@ export async function listTenants(): Promise<TenantRow[]> {
         uid: doc.id,
         email: (data.email as string) ?? '',
         displayName: (data.displayName as string) || undefined,
+        role: (data.role as UserRole) ?? DEFAULT_ROLE,
         disabled: Boolean(data.disabled),
         createdAt: toDateString(data.createdAt),
         lastLoginAt: toDateString(data.lastLoginAt),
@@ -77,11 +81,12 @@ async function deleteTenantDocs(collectionName: string, targetUid: string): Prom
 export async function deleteTenant(targetUid: string): Promise<DeleteTenantResult> {
   if (!firebaseEnabled || !db) throw new Error('Firebase is not configured.')
 
-  // Never allow the Super Admin account to be deleted, regardless of caller.
+  // Never allow the root Super Admin account to be deleted, regardless of caller.
+  // Other super admins CAN be removed — only the permanent root is protected.
   const userRef = doc(db, 'users', targetUid)
   const userSnap = await getDoc(userRef)
   if (userSnap.exists() && isSuperAdminEmail(userSnap.data().email as string | undefined)) {
-    throw new Error('The Super Admin account cannot be deleted.')
+    throw new Error('The root Super Admin account cannot be deleted.')
   }
 
   const deleted: Record<string, number> = {}
@@ -98,4 +103,58 @@ export async function deleteTenant(targetUid: string): Promise<DeleteTenantResul
   }
 
   return { ok: true, targetUid, deleted }
+}
+
+/**
+ * Create a brand-new login + directory row and assign it a role. Only a super admin
+ * may call this (enforced by firestore.rules on the users write).
+ *
+ * The auth account is created on an ISOLATED secondary Firebase app so that
+ * createUserWithEmailAndPassword does not replace the current admin's session on the
+ * primary app. Works on the Spark plan — no Cloud Function / Admin SDK required.
+ * The root email always resolves to super_admin regardless of the requested role.
+ */
+export async function createUser(email: string, password: string, role: UserRole): Promise<TenantRow> {
+  if (!firebaseEnabled || !db) throw new Error('Firebase is not configured.')
+  const cleanEmail = email.trim().toLowerCase()
+  if (!cleanEmail) throw new Error('Email is required.')
+  if (password.length < 6) throw new Error('Password must be at least 6 characters.')
+
+  // Isolated app instance keeps the new sign-in off the primary auth session.
+  const secondaryApp = initializeApp(firebaseConfig, `user-provision-${crypto.randomUUID()}`)
+  let newUid: string
+  try {
+    const secondaryAuth = getAuth(secondaryApp)
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, password)
+    newUid = credential.user.uid
+    await signOut(secondaryAuth)
+  } finally {
+    await deleteApp(secondaryApp)
+  }
+
+  const finalRole: UserRole = isSuperAdminEmail(cleanEmail) ? 'super_admin' : role
+  await setDoc(doc(db, 'users', newUid), {
+    tenantId: newUid,
+    email: cleanEmail,
+    displayName: '',
+    role: finalRole,
+    createdAt: serverTimestamp(),
+    lastLoginAt: null,
+  })
+
+  return { uid: newUid, email: cleanEmail, role: finalRole, createdAt: '—', lastLoginAt: '—' }
+}
+
+/**
+ * Promote or demote an existing tenant. The root Super Admin can never be demoted.
+ * Enforced client-side here for a clear error, and server-side by firestore.rules.
+ */
+export async function setUserRole(targetUid: string, role: UserRole): Promise<void> {
+  if (!firebaseEnabled || !db) throw new Error('Firebase is not configured.')
+  const ref = doc(db, 'users', targetUid)
+  const snap = await getDoc(ref)
+  if (snap.exists() && isSuperAdminEmail(snap.data().email as string | undefined) && role !== 'super_admin') {
+    throw new Error('The root Super Admin role cannot be changed.')
+  }
+  await updateDoc(ref, { role })
 }

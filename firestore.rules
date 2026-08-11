@@ -1,21 +1,45 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSuperAdmin() { return request.auth.token.email == 'munirshahzad044@gmail.com'; }
-    function isDataOwner() { return request.auth != null && resource.data.tenantId == request.auth.uid; }
+    function isSignedIn() { return request.auth != null; }
+
+    // The one permanent root Super Admin. Short-circuits before any doc read, so
+    // the root never depends on their own directory row existing.
+    function isRoot() { return isSignedIn() && request.auth.token.email == 'munirshahzad044@gmail.com'; }
+
+    // Role stored on the caller's own users/{uid} doc ('' when signed out / no doc).
+    function callerRole() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '')
+        : '';
+    }
+
+    // A super admin is the root email OR any user whose stored role is super_admin.
+    function isSuperAdmin() { return isRoot() || callerRole() == 'super_admin'; }
+
+    function isDataOwner() { return isSignedIn() && resource.data.tenantId == request.auth.uid; }
 
     match /users/{userId} {
+      // Super admins manage the whole directory (create/promote/demote/delete).
       allow read, write: if isSuperAdmin();
-      allow read: if request.auth.uid == userId;
-      // A user may create/refresh only their OWN record, and only with tenantId == their uid.
-      allow create, update: if request.auth != null
+      // Any signed-in user may read their own row.
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      // Self-provisioning: a user may create/refresh only their OWN record, with
+      // tenantId == their uid, and may NOT grant themselves an elevated role.
+      allow create, update: if isSignedIn()
                             && request.auth.uid == userId
-                            && request.resource.data.tenantId == request.auth.uid;
+                            && request.resource.data.tenantId == request.auth.uid
+                            && (!('role' in request.resource.data) || request.resource.data.role == 'user');
     }
+
+    // Per-tenant data. `users` is excluded here — it is governed solely by the block
+    // above so the generic data-owner/create rules can never be used to escalate role.
     match /{collection}/{docId} {
-      allow read, write: if isSuperAdmin();
-      allow read, update, delete: if isDataOwner();
-      allow create: if request.auth != null && request.resource.data.tenantId == request.auth.uid;
+      allow read, write: if collection != 'users' && isSuperAdmin();
+      allow read, update, delete: if collection != 'users' && isDataOwner();
+      allow create: if collection != 'users'
+                    && isSignedIn()
+                    && request.resource.data.tenantId == request.auth.uid;
     }
   }
 }
