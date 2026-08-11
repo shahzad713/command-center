@@ -1,4 +1,4 @@
-import { CalendarDays, CircleDollarSign, Edit3, Globe2, KeyRound, Plus, Target, UserRound } from 'lucide-react'
+import { CalendarDays, CircleDollarSign, Edit3, Globe2, KeyRound, Mail, Plus, Target, UserRound } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { AccountProgress } from '../components/AccountProgress'
 import { PageIntro } from '../components/PageIntro'
@@ -31,6 +31,7 @@ const todayDate = () => {
 const emptyCreateForm = {
   name: '',
   handle: '',
+  email: '',
   niche: '',
   owner: 'Yasir',
   assignedTo: teamMembers[0]?.name ?? '',
@@ -60,6 +61,7 @@ export function AccountsPage() {
   const [editPlatformOther, setEditPlatformOther] = useState('')
   const [editTwoFactor, setEditTwoFactor] = useState('')
   const [editCreationDate, setEditCreationDate] = useState('')
+  const [editEmail, setEditEmail] = useState('')
   const [editError, setEditError] = useState('')
 
   // Create modal state
@@ -81,6 +83,7 @@ export function AccountsPage() {
     setEditPlatformOther(platform.other)
     setEditTwoFactor(account.twoFactorCode ?? '')
     setEditCreationDate(account.accountCreationDate ?? '')
+    setEditEmail(account.email ?? '')
     setEditError('')
   }
 
@@ -102,6 +105,8 @@ export function AccountsPage() {
       twoFactorCode: editTwoFactor.trim(),
       // Persist the trimmed date ('' clears it, never undefined for Firestore).
       accountCreationDate: editCreationDate.trim(),
+      // Persist the trimmed email ('' clears it, never undefined for Firestore).
+      email: editEmail.trim(),
     })
     setEditingId(null)
   }
@@ -127,6 +132,11 @@ export function AccountsPage() {
       return
     }
     const code = createForm.twoFactorCode.trim()
+    const email = createForm.email.trim()
+    if (!email) {
+      setCreateError('Linked email is required.')
+      return
+    }
     const payload: EditableAccount = {
       name: createForm.name.trim(),
       handle: createForm.handle.trim(),
@@ -142,6 +152,8 @@ export function AccountsPage() {
       active: true,
       // Auto-set to today by openCreate; fall back to today if the field was cleared.
       accountCreationDate: createForm.accountCreationDate || todayDate(),
+      // Required in the form, so always persisted for new accounts.
+      email,
       // Only attach 2FA when provided so Firestore never receives an undefined field.
       ...(code ? { twoFactorCode: code } : {}),
     }
@@ -204,6 +216,7 @@ export function AccountsPage() {
               {editPlatformChoice === 'Other' && (
                 <label><span>Platform name</span><input value={editPlatformOther} onChange={(event) => setEditPlatformOther(event.target.value)} placeholder="Enter platform name" /></label>
               )}
+              <label className="span-two"><span className="icon-text"><Mail size={14} />Linked email</span><input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} placeholder="account@example.com" autoComplete="off" /></label>
               <label><span>Current followers</span><input type="number" value={followers} onChange={(event) => setFollowers(event.target.value)} /></label>
               <label><span>Follower goal</span><input type="number" value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
               <label><span>Assigned team member</span><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)}>{teamMembers.map((member) => <option key={member.id}>{member.name}</option>)}</select></label>
@@ -227,6 +240,7 @@ export function AccountsPage() {
               <div className="form-grid two">
                 <label><span>Account name</span><input value={createForm.name} onChange={(event) => updateCreate({ name: event.target.value })} placeholder="e.g. Fruit Drama DE" required /></label>
                 <label><span>Handle</span><input value={createForm.handle} onChange={(event) => updateCreate({ handle: event.target.value })} placeholder="@handle" /></label>
+                <label className="span-two"><span className="icon-text"><Mail size={14} />Linked email</span><input type="email" value={createForm.email} onChange={(event) => updateCreate({ email: event.target.value })} placeholder="account@example.com" autoComplete="off" required /></label>
                 <label><span>Platform</span>
                   <select value={createForm.platformChoice} onChange={(event) => updateCreate({ platformChoice: event.target.value })} required>
                     <option value="" disabled>Select platform</option>

@@ -15,6 +15,9 @@ export interface TikTokAccount {
   id: string
   name: string
   handle: string
+  // Email address tied to this social account. Optional so existing documents that
+  // predate the field keep working untouched.
+  email?: string
   niche: string
   owner: string
   assignedTo: string
