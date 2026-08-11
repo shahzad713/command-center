@@ -39,8 +39,9 @@ export function SuperAdminPage() {
   const removeTenant = async (row: TenantRow) => {
     // Irreversible: warn explicitly and require confirmation before the cascade delete.
     const confirmed = window.confirm(
-      `Permanently delete tenant "${row.email || row.uid}"?\n\n` +
-        'This deletes their login AND every account, video and follower snapshot they own. ' +
+      `Permanently delete all data for tenant "${row.email || row.uid}"?\n\n` +
+        'This deletes every account, video and follower snapshot they own, and their directory entry. ' +
+        'Their login is not removed (that needs the Cloud Function), so they could sign in again with an empty workspace. ' +
         'This action cannot be undone.',
     )
     if (!confirmed) return
@@ -53,7 +54,7 @@ export function SuperAdminPage() {
       setTenants((prev) => prev.filter((item) => item.uid !== row.uid))
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Delete failed.'
-      setError(`Delete failed: ${message}. Ensure the deleteTenant Cloud Function is deployed.`)
+      setError(`Delete failed: ${message}. Confirm you are signed in as the Super Admin.`)
     } finally {
       setBusyUid(null)
     }
@@ -70,8 +71,9 @@ export function SuperAdminPage() {
       <div className="admin-warn">
         <AlertTriangle size={18} />
         <span>
-          Deleting a tenant is permanent and silent — it removes their Firebase Auth account and all of their
-          Firestore data (accounts, videos, snapshots). The Super Admin account is protected and cannot be deleted.
+          Deleting a tenant is permanent and silent — it removes all of their Firestore data (accounts, videos,
+          snapshots) and their directory entry. Their Firebase Auth login is not removed by this action (that requires
+          the Cloud Function). The Super Admin account is protected and cannot be deleted.
         </span>
       </div>
 
