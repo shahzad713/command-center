@@ -1,4 +1,4 @@
-import { CalendarDays, CircleDollarSign, Edit3, Globe2, KeyRound, Mail, Plus, Target, UserRound } from 'lucide-react'
+import { CalendarDays, CircleDollarSign, Edit3, Globe2, KeyRound, Mail, Plus, Target } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { AccountProgress } from '../components/AccountProgress'
 import { PageIntro } from '../components/PageIntro'
@@ -6,7 +6,7 @@ import { useData } from '../context/DataContext'
 import { teamMembers } from '../data/team'
 import { PLATFORM_PRESETS } from '../types'
 import type { EditableAccount, MonetizationStatus } from '../types'
-import { formatFullNumber, formatNumber, getAccountVideoSummary } from '../utils/analytics'
+import { formatFullNumber, getAccountVideoSummary } from '../utils/analytics'
 
 const monetizationOptions: MonetizationStatus[] = ['Monetized', 'Not Monetized', 'Under Review']
 
@@ -178,21 +178,26 @@ export function AccountsPage() {
         <div className="table-scroll">
           <table>
             <thead>
-              <tr><th>Account</th><th>Platform</th><th>Country</th><th>Owner</th><th>Assigned</th><th>Followers</th><th>Goal</th><th>Last views</th><th>Monetization</th><th>Created</th><th /></tr>
+              <tr><th>Account</th><th>Email</th><th>Niche</th><th>Country</th><th>Owner</th><th>Assigned</th><th>Followers</th><th>Goal</th><th>Status</th><th>Created</th><th /></tr>
             </thead>
             <tbody>
               {summaries.map((account) => (
                 <tr key={account.id}>
-                  <td><div className="account-cell"><strong>{account.name}</strong><span>{account.handle} · {account.niche}</span></div></td>
-                  <td>{account.platform || '—'}</td>
-                  <td><span className="icon-text"><Globe2 size={15} />{account.targetCountry}</span></td>
-                  <td><span className="icon-text"><UserRound size={15} />{account.owner}</span></td>
-                  <td>{account.assignedTo}</td>
+                  <td><div className="account-cell"><strong>{account.name}</strong><span>{account.handle || '—'}</span></div></td>
+                  <td><span className="icon-text"><Mail size={14} />{account.email || '—'}</span></td>
+                  <td>{account.niche ? <span className="badge info">{account.niche}</span> : '—'}</td>
+                  <td><span className="icon-text"><Globe2 size={15} />{account.targetCountry || '—'}</span></td>
+                  <td>{account.owner ? <span className="badge">{account.owner}</span> : '—'}</td>
+                  <td>{account.assignedTo ? <span className="badge">{account.assignedTo}</span> : '—'}</td>
                   <td>{formatFullNumber(account.currentFollowers)}</td>
                   <td><span className="icon-text"><Target size={15} />{formatFullNumber(account.followerGoal)}</span></td>
-                  <td>{formatNumber(account.lastVideoViews)}</td>
-                  <td><span className={`plain-pill ${account.monetizationStatus === 'Monetized' ? 'success' : ''}`}><CircleDollarSign size={14} />{account.monetizationStatus}</span></td>
-                  <td>{account.accountCreationDate || '—'}</td>
+                  <td>
+                    <div className="acc-status">
+                      <span className={`badge ${account.active ? 'active' : 'inactive'}`}>{account.active ? 'Active' : 'Inactive'}</span>
+                      <span className={`plain-pill ${account.monetizationStatus === 'Monetized' ? 'success' : ''}`}><CircleDollarSign size={14} />{account.monetizationStatus}</span>
+                    </div>
+                  </td>
+                  <td>{account.accountCreationDate || (account.createdAt ? account.createdAt.slice(0, 10) : '—')}</td>
                   <td><button className="icon-button" onClick={() => beginEdit(account)} aria-label={`Edit ${account.name}`}><Edit3 size={16} /></button></td>
                 </tr>
               ))}
